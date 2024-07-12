@@ -93,8 +93,8 @@ class Layer_Normalization(nn.Module):
         self.beta = nn.Parameter(torch.zeros(features))  # add -> b
         
     def forward(self,x):
-        mean = x.mean(dim=-1, keepdim = True)
-        standard_deviation = x.std(dim=-1, keepdim = True)
+        mean = x.float().mean(dim=-1, keepdim = True)
+        standard_deviation = x.float().std(dim=-1, keepdim = True)
         # X = (x - mean) / sqrt(standard deviation^2  + epsilon)
         # ignoring square root as value of epsilon is very very small
         return self.alpha * ((x-mean) / (standard_deviation + self.eps)) + self.beta
@@ -252,13 +252,14 @@ class Decoder_Block(nn.Module):
         self.feed_forward = feed_forward
         self.residual_connections = nn.ModuleList([Residual_Connection(features, dropout) for _ in range(3)])
         
-    def forward(self, x, encoder_output, encoder_mask, decoder_mask):
-        x = self.residual_connections[0](x, lambda x: self.self_attention(x,x,x, decoder_mask))
+    # def forward(self, encoder_output, encoder_mask, x, decoder_mask):
+    def forward(self, encoder_output, encoder_mask, decoder_input, decoder_mask):
+        decoder_input = self.residual_connections[0](decoder_input, lambda decoder_input: self.self_attention(decoder_input,decoder_input,decoder_input,decoder_mask))
         # Query from Decoder, Key, Value from Encoder, Mask of the Encoder
         # => Encoder -> Key, Value, Mask; Decoder -> Query
-        x = self.residual_connections[1](x, lambda x: self.cross_attention(x, encoder_output, encoder_output, encoder_mask))
-        x = self.residual_connections[2](x, self.feed_forward)
-        return x
+        decoder_input = self.residual_connections[1](decoder_input, lambda x: self.cross_attention(decoder_input, encoder_output, encoder_output, encoder_mask))
+        decoder_input = self.residual_connections[2](decoder_input, self.feed_forward)
+        return decoder_input
     
 class Decoder(nn.Module):
     
@@ -267,10 +268,10 @@ class Decoder(nn.Module):
         self.layers = layers
         self.norm = Layer_Normalization(features)
         
-    def forward(self, x, encoder_output, encoder_mask, decoder_mask):
+    def forward(self, encoder_output, encoder_mask, decoder_input, decoder_mask):
         for layer in self.layers:
-            x = layer(x,encoder_output, encoder_mask, decoder_mask)
-        return self.norm(x)
+            decoder_input = layer(encoder_output, encoder_mask, decoder_input, decoder_mask)
+        return self.norm(decoder_input)
     
     
     
@@ -311,11 +312,12 @@ class Transformer(nn.Module):
         return self.encoder(s, encoder_mask)
     
     # 2.
-    def decode(self, encoder_output, encoder_mask, target, target_mask):
-        t = self.target_embed(target)
+    def decode(self, encoder_output, encoder_mask, decoder_input, decoder_mask):
+        t = self.target_embed(decoder_input)
         t = self.target_pos(t)
-        return self.decoder(t, encoder_output, encoder_mask, target_mask)
+        return self.decoder(encoder_output, encoder_mask, t, decoder_mask)
     
+    # 3. pass it to last project layer to 'merge' them to vocab 
     def project(self, x):
         return self.projection_layer(x)
     

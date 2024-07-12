@@ -64,7 +64,7 @@ def get_dataset(config):
     
     for i in ds_train_raw:
         source_ids = tokenizer_source.encode(i['translation'][config['source_language']]).ids
-        target_ids = tokenizer_source.encode(i['translation'][config['source_language']]).ids
+        target_ids = tokenizer_target.encode(i['translation'][config['target_language']]).ids
         max_len_source = max(max_len_source, len(source_ids))
         max_len_target = max(max_len_target, len(target_ids))
         
@@ -130,8 +130,7 @@ def train_model(config):
     for epoch in range(initial_epoch, config['num_epochs']):
         model.train()
         batch_iterator= tqdm(train_dataloader, desc=f"Processing epoch {epoch:02d}")
-        for batch in batch_iterator:
-            
+        for i,batch in enumerate(batch_iterator):
             encoder_input = batch['encoder_input'].to(device) # (batch, sequence_length)
             decoder_input = batch['decoder_input'].to(device) # (batch, sequence_length)
             encoder_mask = batch['encoder_mask'].to(device)   # (batch, 1, 1, sequence_length)
@@ -140,7 +139,7 @@ def train_model(config):
             
             # run them trhough the transformer
             encoder_output=model.encode(encoder_input, encoder_mask) # (batch, sequence_length, d_model)
-            decoder_output = model.decoder(encoder_output,encoder_mask, decoder_input, decoder_mask) # (batch, sequence_length, d_model)
+            decoder_output = model.decode(encoder_output,encoder_mask,decoder_input,decoder_mask)
             
             projection_output = model.project(decoder_output) # (batch , sequence_length, target_vocab_size)
             
@@ -152,7 +151,8 @@ def train_model(config):
             loss = loss_fn(projection_output.view(-1, tokenizer_target.get_vocab_size()), label.view(-1))
             
             
-            batch_iterator.set_postfix({f"loss: {loss.item():6.3f}"})
+            # batch_iterator.set_postfix({f"loss: {loss.item():6.3f}"})
+            batch_iterator.set_postfix({"loss": f"{loss.item():6.3f}"})
             
             # Tensorboard
             writer.add_scalar('train loss', loss.item(), global_step=global_step)
@@ -169,15 +169,15 @@ def train_model(config):
             global_step+=1
             
             
-    # Save model at every epoch
-    model_filename = get_weights_file_path(config=config, epoch=f"{epoch:02d}")
-    torch.save({
-        'epoch' : epoch,
-        'model_state_dict' : model.state_dict(),
-        'optimizer_state_dict' : optimizer.state_dict(),
-        'global_step' : global_step
-        
-    }, model_filename)
+        # Save model at every epoch
+        model_filename = get_weights_file_path(config=config, epoch=f"{epoch:02d}")
+        torch.save({
+            'epoch' : epoch,
+            'model_state_dict' : model.state_dict(),
+            'optimizer_state_dict' : optimizer.state_dict(),
+            'global_step' : global_step
+            
+        }, model_filename)
     
     
 import warnings
